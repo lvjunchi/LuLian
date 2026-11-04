@@ -18,7 +18,9 @@ npm run dev
 
 ## 网页部署
 
-网页使用 Sites 托管，静态目录为 `dist/`，站点标识保存在 `.openai/hosting.json`。站点默认仅本人账号可访问，发布后无需电脑保持运行。源码维护在 [GitHub](https://github.com/lvjunchi/LuLian)。
+网页地址：[打开鹿练](https://lulian-lvjunchi.myworkspace-3144.chatgpt.site)。
+
+网页使用 Sites 托管，链接可直接访问、无需登录，发布后无需电脑保持运行。静态目录为 `dist/`，站点标识保存在 `.openai/hosting.json`。源码维护在 [GitHub](https://github.com/lvjunchi/LuLian)；推送 GitHub 不会自动发布网站，更新后需重新构建并发布 Sites 版本。
 
 线上地址和本地开发地址的浏览器数据相互独立。如需迁移已记录的训练，请先在旧地址导出 JSON，再在新地址导入。
 
