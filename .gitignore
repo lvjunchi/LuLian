@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env*
+!.env.example
+鹿练备份-*.json
+鹿练训练明细-*.csv
