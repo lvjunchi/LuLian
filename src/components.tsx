@@ -1,7 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Entry, Exercise, LiftSet, Mode, Workout } from "./domain";
-import { dayKey, newSet, previousEntry, validSet, uid } from "./domain";
+import {
+  adjustNumber,
+  dayKey,
+  newSet,
+  previousEntry,
+  validSet,
+  uid,
+} from "./domain";
 
 export type Tab = "train" | "plan" | "history" | "chart";
 export type Editor = {
@@ -138,6 +145,57 @@ export function Empty({
     </div>
   );
 }
+function SetNumber({
+  label,
+  value,
+  step,
+  minimum = 0,
+  onChange,
+  notify,
+}: {
+  label: string;
+  value: string;
+  step: number;
+  minimum?: number;
+  onChange: (value: string) => void;
+  notify: (message: string) => void;
+}) {
+  const adjust = (delta: number) => {
+    const next = adjustNumber(value, delta, minimum);
+    if (next === null) notify("请先输入有效数字，再使用微调");
+    else onChange(next);
+  };
+  return (
+    <div className="set-number">
+      <input
+        aria-label={label}
+        inputMode={minimum ? "numeric" : "decimal"}
+        autoComplete="off"
+        type="text"
+        maxLength={minimum ? 5 : 8}
+        value={value}
+        placeholder="—"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <div className="number-steps">
+        <button
+          type="button"
+          aria-label={`${label}减少${step}`}
+          onClick={() => adjust(-step)}
+        >
+          −
+        </button>
+        <button
+          type="button"
+          aria-label={`${label}增加${step}`}
+          onClick={() => adjust(step)}
+        >
+          ＋
+        </button>
+      </div>
+    </div>
+  );
+}
 export function WorkEditor({
   workout: w,
   onChange,
@@ -157,6 +215,7 @@ export function WorkEditor({
   onRest: () => void;
   notify: (s: string) => void;
 }) {
+  const [weightStep, setWeightStep] = useState(2.5);
   const changeEntry = (id: string, fn: (e: Entry) => Entry) =>
     onChange({
       ...w,
@@ -190,6 +249,22 @@ export function WorkEditor({
             />
           </label>
         )}
+      </div>
+      <div className="record-tools">
+        <label>
+          重量微调步长
+          <select
+            value={weightStep}
+            onChange={(e) => setWeightStep(Number(e.target.value))}
+          >
+            {[0.5, 1, 2.5, 5].map((step) => (
+              <option key={step} value={step}>
+                {step} kg
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>次数每次微调 1 次</span>
       </div>
       {w.exercises.map((entry, index) => {
         const previous = previousEntry(history, entry, w.date, w.id);
@@ -293,83 +368,87 @@ export function WorkEditor({
               <span>组 / 类型</span>
               <span>{entry.mode === "assisted" ? "辅助 kg" : "重量 kg"}</span>
               <span>次数</span>
-              <span>{template ? "" : "完成"}</span>
-              <span />
+              <span>{template ? "目标" : "完成"}</span>
             </div>
             {entry.sets.map((set, i) => (
               <div
                 className={`set-row ${set.done ? "completed" : ""}`}
                 key={set.id}
               >
-                <button
-                  className={`set-kind ${set.kind}`}
-                  title="点击切换热身组或正式组"
-                  aria-label={`第${i + 1}组，${set.kind === "warmup" ? "热身组" : "正式组"}，点击切换`}
-                  onClick={() =>
-                    changeSet(entry.id, set.id, {
-                      kind: set.kind === "warmup" ? "normal" : "warmup",
-                    })
-                  }
-                >
-                  {set.kind === "warmup" ? "热身" : i + 1}
-                </button>
+                <div className="set-index">
+                  <button
+                    className={`set-kind ${set.kind}`}
+                    title="点击切换热身组或正式组"
+                    aria-label={`第${i + 1}组，${set.kind === "warmup" ? "热身组" : "正式组"}，点击切换`}
+                    onClick={() =>
+                      changeSet(entry.id, set.id, {
+                        kind: set.kind === "warmup" ? "normal" : "warmup",
+                      })
+                    }
+                  >
+                    {set.kind === "warmup" ? "热身" : i + 1}
+                  </button>
+                  <button
+                    className="remove-set"
+                    aria-label={`删除第${i + 1}组`}
+                    onClick={() => {
+                      if (!set.done || confirm("删除这个已完成的组？"))
+                        changeEntry(entry.id, (e) => ({
+                          ...e,
+                          sets: e.sets.filter((s) => s.id !== set.id),
+                        }));
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
                 {entry.mode === "bodyweight" ? (
                   <span className="bodyweight-label">自重</span>
                 ) : (
-                  <input
-                    aria-label={`${entry.name}第${i + 1}组重量`}
-                    inputMode="decimal"
-                    type="text"
-                    maxLength={8}
+                  <SetNumber
+                    label={`${entry.name}第${i + 1}组重量`}
                     value={set.weight}
-                    placeholder="—"
-                    onChange={(e) =>
-                      changeSet(entry.id, set.id, {
-                        weight: e.target.value,
-                        done: false,
-                      })
+                    step={weightStep}
+                    notify={notify}
+                    onChange={(weight) =>
+                      changeSet(entry.id, set.id, { weight, done: false })
                     }
                   />
                 )}
-                <input
-                  aria-label={`${entry.name}第${i + 1}组次数`}
-                  inputMode="numeric"
-                  type="text"
-                  maxLength={5}
+                <SetNumber
+                  label={`${entry.name}第${i + 1}组次数`}
                   value={set.reps}
-                  placeholder="—"
-                  onChange={(e) =>
-                    changeSet(entry.id, set.id, {
-                      reps: e.target.value,
-                      done: false,
-                    })
+                  step={1}
+                  minimum={1}
+                  notify={notify}
+                  onChange={(reps) =>
+                    changeSet(entry.id, set.id, { reps, done: false })
                   }
                 />
-                {!template ? (
-                  <button
-                    className={`check-btn ${set.done ? "checked" : ""}`}
-                    aria-label={`第${i + 1}组${set.done ? "取消完成" : "标记完成"}`}
-                    aria-pressed={set.done}
-                    onClick={() => {
-                      if (!set.done && !validSet(set, entry.mode)) {
-                        notify("请填写有效重量和次数，次数须为正整数");
-                        return;
-                      }
-                      changeSet(entry.id, set.id, { done: !set.done });
-                      if (!set.done && restSeconds > 0) onRest();
-                    }}
-                  >
-                    <Icon name="check" size={19} />
-                  </button>
-                ) : (
-                  <span />
-                )}
                 <div className="set-tools">
+                  {!template ? (
+                    <button
+                      className={`check-btn ${set.done ? "checked" : ""}`}
+                      aria-label={`第${i + 1}组${set.done ? "取消完成" : "标记完成"}`}
+                      aria-pressed={set.done}
+                      onClick={() => {
+                        if (!set.done && !validSet(set, entry.mode)) {
+                          notify("请填写有效重量和次数，次数须为正整数");
+                          return;
+                        }
+                        changeSet(entry.id, set.id, { done: !set.done });
+                        if (!set.done && restSeconds > 0) onRest();
+                      }}
+                    >
+                      <Icon name="check" size={22} />
+                    </button>
+                  ) : (
+                    <span className="set-target">待练</span>
+                  )}
                   <button
                     className="copy-set"
                     disabled={i === 0}
                     aria-label={`第${i + 1}组复制上一组数据`}
-                    title="复制上一组数据"
                     onClick={() => {
                       if (
                         set.done &&
@@ -387,20 +466,7 @@ export function WorkEditor({
                         });
                     }}
                   >
-                    ↳
-                  </button>
-                  <button
-                    className="remove-set"
-                    aria-label={`删除第${i + 1}组`}
-                    onClick={() => {
-                      if (!set.done || confirm("删除这个已完成的组？"))
-                        changeEntry(entry.id, (e) => ({
-                          ...e,
-                          sets: e.sets.filter((s) => s.id !== set.id),
-                        }));
-                    }}
-                  >
-                    ×
+                    复制
                   </button>
                 </div>
               </div>
@@ -417,7 +483,9 @@ export function WorkEditor({
               <Icon name="plus" size={16} />
               添加一组 · 复制上一组数据
             </button>
-            <p className="set-hint">↳ 复制上一组 · 点击组号切换热身 / 正式</p>
+            <p className="set-hint">
+              复制会沿用上一组数字 · 点击组号切换热身 / 正式
+            </p>
             <input
               className="note-input"
               value={entry.note}

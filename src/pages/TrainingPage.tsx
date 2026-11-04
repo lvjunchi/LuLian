@@ -1,11 +1,11 @@
 import type { AppData, Entry } from "../domain";
 import { doneCount, volume, weekSummary } from "../domain";
-import { Empty, Icon, WorkEditor, elapsed, fmt } from "../components";
+import { Empty, Icon, WorkEditor, fmt } from "../components";
+import { WorkoutTimer } from "../timers";
 import type { Tab } from "../components";
 
 type Props = {
   data: AppData;
-  now: number;
   update: (fn: (data: AppData) => AppData) => void;
   start: (name: string, entries?: Entry[], note?: string) => void;
   finish: () => void;
@@ -16,7 +16,6 @@ type Props = {
 };
 export default function TrainingPage({
   data,
-  now,
   update,
   start,
   finish,
@@ -37,10 +36,7 @@ export default function TrainingPage({
           <div className="active-summary">
             <span className="live-dot" />
             训练进行中
-            <span>
-              <Icon name="clock" size={15} />
-              {elapsed(Math.floor((now - draft.startedAt) / 1000))}
-            </span>
+            <WorkoutTimer startedAt={draft.startedAt} />
             <strong>{doneCount(draft)} 组已完成</strong>
           </div>
           <WorkEditor

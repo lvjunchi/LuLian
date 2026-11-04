@@ -46,6 +46,11 @@ export type AppData = {
   bodyweights: { id: string; date: string; kg: string }[];
   settings: { restSeconds: number };
   restUntil: number | null;
+  backup: {
+    lastExportedAt: number | null;
+    workoutsSinceExport: number;
+    snoozedUntil: number | null;
+  };
 };
 
 export const uid = (): string =>
@@ -69,6 +74,39 @@ export const numberOK = (s: string, positive = false, integer = false) =>
   Number(s) >= (positive ? Number.MIN_VALUE : 0) &&
   Number(s) <= 100000 &&
   (!integer || Number.isInteger(Number(s)));
+export function adjustNumber(value: string, delta: number, minimum = 0) {
+  if (value.trim() && !numberOK(value, false, minimum === 1)) return null;
+  return String(
+    Math.min(
+      100000,
+      Math.max(minimum, Math.round((Number(value || 0) + delta) * 100) / 100),
+    ),
+  );
+}
+export function backupReminder(data: AppData, now = Date.now()) {
+  const { lastExportedAt, workoutsSinceExport, snoozedUntil } = data.backup;
+  if (snoozedUntil && snoozedUntil > now) return "";
+  if (
+    !data.workouts.length &&
+    !data.bodyweights.length &&
+    !data.templates.length &&
+    !data.draft
+  )
+    return "";
+  if (workoutsSinceExport >= 3)
+    return `已有 ${workoutsSinceExport} 次新增训练，记得导出一份备份。`;
+  const weekAgo = now - 7 * 86400000;
+  if (lastExportedAt !== null && lastExportedAt <= weekAgo)
+    return "距离上次导出已满 7 天，留一份新的备份吧。";
+  if (
+    lastExportedAt === null &&
+    [...data.workouts, ...data.bodyweights].some(
+      (r) => Date.parse(`${r.date}T00:00:00`) <= weekAgo,
+    )
+  )
+    return "还没有导出过备份，给积累的记录留一份副本吧。";
+  return "";
+}
 export function validSet(set: LiftSet, mode: Mode) {
   return (
     numberOK(set.reps, true, true) &&
@@ -241,6 +279,11 @@ export function initialData(): AppData {
     bodyweights: [],
     settings: { restSeconds: 90 },
     restUntil: null,
+    backup: {
+      lastExportedAt: null,
+      workoutsSinceExport: 0,
+      snoozedUntil: null,
+    },
   };
 }
 
@@ -352,6 +395,22 @@ export function validateData(input: unknown): AppData {
   )
     fail();
   if (d.restUntil !== null && !finite(d.restUntil)) fail();
+  const backup =
+    d.backup === undefined
+      ? {
+          lastExportedAt: null,
+          workoutsSinceExport: (d.workouts as unknown[]).length,
+          snoozedUntil: null,
+        }
+      : obj(d.backup);
+  if (
+    (backup.lastExportedAt !== null && !finite(backup.lastExportedAt)) ||
+    !Number.isInteger(backup.workoutsSinceExport) ||
+    (backup.workoutsSinceExport as number) < 0 ||
+    (backup.workoutsSinceExport as number) > 1000000 ||
+    (backup.snoozedUntil !== null && !finite(backup.snoozedUntil))
+  )
+    fail();
   const data = d as unknown as AppData;
   if (data.draft && data.workouts.some((w) => w.id === data.draft!.id)) fail();
   const known = new Set(data.exercises.map((e) => e.id));
@@ -361,7 +420,7 @@ export function validateData(input: unknown): AppData {
     ...(data.draft?.exercises ?? []),
   ];
   if (allEntries.some((e) => !known.has(e.exerciseId))) fail();
-  return structuredClone(data);
+  return structuredClone({ ...data, backup: backup as AppData["backup"] });
 }
 export function backupJSON(data: AppData) {
   return JSON.stringify(

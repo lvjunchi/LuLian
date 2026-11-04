@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   backupJSON,
+  backupReminder,
+  adjustNumber,
   dayKey,
   doneCount,
   exportCSV,
@@ -15,6 +17,7 @@ import {
   volume,
   weekSummary,
   workoutError,
+  validateData,
 } from "./domain.ts";
 import type { AppData, Workout } from "./domain.ts";
 
@@ -205,4 +208,49 @@ test("weekly totals start on Monday and exclude earlier and future dates", () =>
     summary.week.map((w) => w.date),
     ["2026-01-05", "2026-01-07"],
   );
+});
+
+test("numeric steps clamp weight and reps without producing floating point noise or fractional reps", () => {
+  assert.equal(adjustNumber("20", 2.5), "22.5");
+  assert.equal(adjustNumber("0", -2.5), "0");
+  assert.equal(adjustNumber("1", -1, 1), "1");
+  assert.equal(adjustNumber("", 1, 1), "1");
+  assert.equal(adjustNumber("0.1", 0.2), "0.3");
+  assert.equal(adjustNumber("2.5", 1, 1), null);
+  assert.equal(adjustNumber("abc", 2.5), null);
+});
+test("legacy data without reminder metadata is read without losing training records", () => {
+  const { data, workout } = fixture();
+  data.workouts = [{ ...workout, endedAt: workout.startedAt + 1000 }];
+  const legacy = structuredClone(data) as Partial<AppData>;
+  delete legacy.backup;
+  const restored = validateData(legacy);
+  assert.deepEqual(restored.workouts, data.workouts);
+  assert.deepEqual(restored.backup, {
+    lastExportedAt: null,
+    workoutsSinceExport: 1,
+    snoozedUntil: null,
+  });
+});
+test("reminders respect new training count, a week since export, snooze, and empty libraries", () => {
+  const { data, workout } = fixture();
+  const now = Date.now();
+  data.workouts = [{ ...workout, endedAt: now }];
+  data.backup.workoutsSinceExport = 3;
+  assert.ok(backupReminder(data, now));
+  data.backup.snoozedUntil = now + 86400000;
+  assert.equal(backupReminder(data, now), "");
+  data.backup = {
+    lastExportedAt: now,
+    workoutsSinceExport: 0,
+    snoozedUntil: null,
+  };
+  assert.equal(backupReminder(data, now), "");
+  assert.ok(backupReminder(data, now + 7 * 86400000));
+  assert.equal(backupReminder(initialData(), now + 30 * 86400000), "");
+});
+test("invalid reminder metadata cannot replace a valid library", () => {
+  const data = initialData();
+  data.backup.workoutsSinceExport = -1;
+  assert.throws(() => validateData(data));
 });

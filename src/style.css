@@ -701,7 +701,7 @@ main {
 .set-head,
 .set-row {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) minmax(0, 1fr) 40px 52px;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 1fr) 44px;
   gap: 8px;
   align-items: center;
   text-align: center;
@@ -712,7 +712,8 @@ main {
   margin: 15px 0 8px;
 }
 .set-row {
-  padding: 5px 0;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef2e9;
   border-radius: 7px;
 }
 .set-row input {
@@ -730,7 +731,7 @@ main {
 }
 .set-kind {
   font-size: 12px;
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 7px;
   color: #809276;
 }
@@ -738,17 +739,20 @@ main {
   color: #a08348;
   background: #f9f4e8;
   font-size: 10px;
-  min-height: 30px;
+  min-height: 44px;
 }
 .bodyweight-label {
   font-size: 13px;
   color: #92a08b;
+  display: grid;
+  place-items: center;
+  height: 84px;
 }
 .check-btn {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #e1e8dc;
   border-radius: 8px;
   color: #c4cebf;
@@ -760,26 +764,128 @@ main {
 }
 .remove-set {
   color: #b6bfb0;
-  font-size: 18px;
+  font-size: 10px;
   padding: 5px;
-  min-height: 38px;
+  min-height: 40px;
 }
 .set-tools {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
 }
 .copy-set {
   color: #789469;
-  font-size: 20px;
+  font-size: 11px;
   padding: 5px;
-  min-height: 38px;
+  min-height: 40px;
+  width: 44px;
 }
 .set-hint {
   font-size: 9px;
   color: #9ba68f;
   margin: 0 0 6px;
   text-align: center;
+}
+.set-index {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.set-target {
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: #94a18a;
+  font-size: 11px;
+}
+.set-number input {
+  min-height: 44px;
+}
+.number-steps {
+  display: flex;
+}
+.number-steps button {
+  flex: 1;
+  min-height: 40px;
+  color: var(--green);
+  background: #f1f5ec;
+  font-size: 17px;
+}
+.number-steps button:first-child {
+  border-radius: 0 0 0 7px;
+  margin-right: 2px;
+}
+.number-steps button:last-child {
+  border-radius: 0 0 7px 0;
+}
+.record-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 2px;
+  font-size: 10px;
+  color: #90a080;
+}
+.record-tools label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+}
+.record-tools select {
+  display: inline-block;
+  width: auto;
+  margin: 0;
+  padding: 6px;
+  font-size: 13px;
+}
+.offline-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 10px;
+  color: #819675;
+  margin: -9px 0 16px;
+  line-height: 1.7;
+}
+.update-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #edf4e7;
+  border-radius: 9px;
+  padding: 8px 12px;
+}
+.update-notice button {
+  color: var(--green);
+  font-size: 11px;
+  min-height: 36px;
+}
+.backup-reminder {
+  padding: 14px 17px;
+  border: 1px solid #dce7d3;
+  border-radius: 12px;
+  background: #f0f5e7;
+  margin-bottom: 18px;
+}
+.backup-reminder strong {
+  font-size: 12px;
+  color: #557346;
+}
+.backup-reminder p {
+  font-size: 11px;
+  color: #859677;
+  margin: 4px 0 0;
+}
+.backup-reminder .button-row {
+  justify-content: flex-end;
+  gap: 20px;
+}
+.backup-reminder .button-row .text-btn {
+  margin-left: 0;
 }
 .mini-stats strong,
 .detail-numbers strong {
@@ -1565,12 +1671,12 @@ main {
   }
   .set-head,
   .set-row {
-    grid-template-columns: 38px minmax(0, 1fr) minmax(0, 1fr) 34px 46px;
+    grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr) 44px;
     gap: 6px;
   }
   .check-btn {
-    width: 32px;
-    height: 38px;
+    width: 44px;
+    height: 44px;
   }
   .set-row input {
     font-size: 18px;

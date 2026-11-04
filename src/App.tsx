@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type {
   AppData,
   Cardio,
@@ -9,6 +15,7 @@ import type {
 } from "./domain";
 import {
   backupJSON,
+  backupReminder,
   dayKey,
   doneCount,
   exportCSV,
@@ -29,8 +36,10 @@ import {
   NoticeContext,
   WorkEditor,
   download,
-  elapsed,
 } from "./components";
+import { createAutosaver } from "./autosave";
+import { RestTimer } from "./timers";
+import OfflineAccess from "./OfflineAccess";
 
 import TrainingPage from "./pages/TrainingPage";
 import PlanPage from "./pages/PlanPage";
@@ -61,21 +70,44 @@ export default function App() {
   const [pendingBackup, setPendingBackup] = useState<AppData | null>(null);
   const [backupDownloaded, setBackupDownloaded] = useState(false);
   const [restoring, setRestoring] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [autosave] = useState(() => createAutosaver(saveData));
   const generation = useRef(0);
   const lastSaved = useRef<AppData | null>(null);
+  const lastRequested = useRef<AppData | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const notify = (message: string) => {
     setToast(message);
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 4200);
   };
+  const requestSave = useCallback(
+    (snapshot: AppData, immediate = false) => {
+      const id = ++generation.current;
+      setSaveStatus("正在保存…");
+      return autosave
+        .schedule(snapshot, immediate)
+        .then(() => {
+          lastSaved.current = snapshot;
+          if (id === generation.current) setSaveStatus("已保存到本机");
+        })
+        .catch((error: unknown) => {
+          if (id === generation.current)
+            setSaveStatus(
+              error instanceof Error && error.message.includes("另一页面")
+                ? `保存失败 · ${error.message}`
+                : "保存失败 · 请立即导出备份",
+            );
+        });
+    },
+    [autosave],
+  );
   useEffect(() => {
     let mounted = true;
     loadData()
       .then((d) => {
         if (mounted) {
           lastSaved.current = d;
+          lastRequested.current = d;
           setData(d);
         }
       })
@@ -89,38 +121,47 @@ export default function App() {
       mounted = false;
     };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!data || data === lastSaved.current) return;
-    const id = ++generation.current;
-    setSaveStatus("正在保存…");
-    saveData(data)
-      .then(() => {
-        lastSaved.current = data;
-        if (id === generation.current) setSaveStatus("已保存到本机");
-      })
-      .catch((error: unknown) => {
-        if (id === generation.current)
-          setSaveStatus(
-            error instanceof Error && error.message.includes("另一页面")
-              ? `保存失败 · ${error.message}`
-              : "保存失败 · 请立即导出备份",
-          );
-      });
-  }, [data]);
+    const previous = lastRequested.current;
+    lastRequested.current = data;
+    const urgent =
+      !previous ||
+      data.workouts !== previous.workouts ||
+      data.templates !== previous.templates ||
+      data.exercises !== previous.exercises ||
+      data.bodyweights !== previous.bodyweights ||
+      data.backup !== previous.backup ||
+      data.draft?.id !== previous.draft?.id ||
+      (data.draft &&
+        previous.draft &&
+        doneCount(data.draft) !== doneCount(previous.draft));
+    void requestSave(data, Boolean(urgent));
+  }, [data, requestSave]);
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const flush = () => {
+      void autosave.flush().catch(() => {});
+    };
+    const onVisibility = () => {
+      if (document.hidden) flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
     return () => {
-      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      flush();
       clearTimeout(toastTimer.current);
     };
-  }, []);
+  }, [autosave]);
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
+      void autosave.flush().catch(() => {});
       if (saveStatus !== "已保存到本机") e.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [saveStatus]);
+  }, [saveStatus, autosave]);
   if (!data)
     return (
       <div className="loading">
@@ -151,8 +192,10 @@ export default function App() {
                       )
                     )
                       return;
+                    await autosave.flush();
                     await saveData(restored);
                     lastSaved.current = restored;
+                    lastRequested.current = restored;
                     setData(restored);
                     setSaveStatus("已保存到本机");
                   } catch (error) {
@@ -192,8 +235,20 @@ export default function App() {
     setDetailId("");
     window.scrollTo(0, 0);
   };
-  const backup = () =>
-    download(backupJSON(data), `鹿练备份-${dayKey()}-${Date.now()}.json`);
+  const backup = () => {
+    const now = Date.now();
+    const next = {
+      ...data,
+      backup: {
+        lastExportedAt: now,
+        workoutsSinceExport: 0,
+        snoozedUntil: null,
+      },
+    };
+    download(backupJSON(next), `鹿练备份-${dayKey()}-${now}.json`);
+    update(() => next);
+    notify("备份下载已发起，请确认文件已保存");
+  };
   const pickExercise = (e: Exercise, create = false) => {
     if (!picker) return;
     const w = picker.target === "draft" ? data.draft : editor?.workout;
@@ -279,6 +334,13 @@ export default function App() {
           editor.kind === "history"
             ? d.workouts.map((v) => (v.id === w.id ? saved : v))
             : [...d.workouts, saved],
+        backup:
+          editor.kind === "backfill"
+            ? {
+                ...d.backup,
+                workoutsSinceExport: d.backup.workoutsSinceExport + 1,
+              }
+            : d.backup,
       }));
       setDetailId(saved.id);
       notify(editor.kind === "history" ? "历史记录已更新" : "补记已保存");
@@ -308,6 +370,10 @@ export default function App() {
       workouts: [...d.workouts, ended],
       draft: null,
       restUntil: null,
+      backup: {
+        ...d.backup,
+        workoutsSinceExport: d.backup.workoutsSinceExport + 1,
+      },
     }));
     setTab("history");
     setDetailId(ended.id);
@@ -320,6 +386,7 @@ export default function App() {
     history: "每一次坚持，都有迹可循",
     chart: "慢慢来，你一直在进步",
   }[tab];
+  const reminder = backupReminder(data);
   return (
     <NoticeContext.Provider value={toast}>
       <div className="app-shell">
@@ -357,17 +424,44 @@ export default function App() {
             </span>
             <h1>{pageTitle}</h1>
           </div>
+          <OfflineAccess
+            draftActive={Boolean(draft)}
+            beforeUpdate={() => autosave.flush()}
+          />
+          {reminder && (
+            <aside className="backup-reminder">
+              <div>
+                <strong>记得留一份备份</strong>
+                <p>{reminder}</p>
+              </div>
+              <div className="button-row">
+                <button className="text-btn" onClick={backup}>
+                  导出备份
+                </button>
+                <button
+                  className="text-btn"
+                  onClick={() =>
+                    update((d) => ({
+                      ...d,
+                      backup: {
+                        ...d.backup,
+                        snoozedUntil: Date.now() + 86400000,
+                      },
+                    }))
+                  }
+                >
+                  明天再提醒
+                </button>
+              </div>
+            </aside>
+          )}
           {saveStatus.includes("失败") && (
             <div className="save-warning" role="alert">
               {saveStatus}
               <button onClick={backup}>导出备份</button>
               <button
                 onClick={() => {
-                  saveData(data)
-                    .then(() => setSaveStatus("已保存到本机"))
-                    .catch(() =>
-                      notify("仍无法保存，请先备份并检查浏览器存储权限"),
-                    );
+                  void requestSave(data, true);
                 }}
               >
                 重试保存
@@ -377,7 +471,6 @@ export default function App() {
           {tab === "train" && (
             <TrainingPage
               data={data}
-              now={now}
               update={update}
               start={start}
               finish={finish}
@@ -428,30 +521,16 @@ export default function App() {
           </footer>
         </main>
         {draft && data.restUntil !== null && (
-          <div className="rest-bar" role="status">
-            <Icon name="clock" />
-            <div>
-              <small>
-                {data.restUntil > now ? "组间休息" : "休息结束，准备好再继续"}
-              </small>
-              <strong>
-                {elapsed(Math.ceil(Math.max(0, data.restUntil - now) / 1000))}
-              </strong>
-            </div>
-            <button
-              onClick={() =>
-                update((d) => ({
-                  ...d,
-                  restUntil: Math.max(Date.now(), d.restUntil ?? 0) + 30000,
-                }))
-              }
-            >
-              ＋30秒
-            </button>
-            <button onClick={() => update((d) => ({ ...d, restUntil: null }))}>
-              {data.restUntil > now ? "跳过" : "关闭"}
-            </button>
-          </div>
+          <RestTimer
+            until={data.restUntil}
+            onExtend={() =>
+              update((d) => ({
+                ...d,
+                restUntil: Math.max(Date.now(), d.restUntil ?? 0) + 30000,
+              }))
+            }
+            onClose={() => update((d) => ({ ...d, restUntil: null }))}
+          />
         )}
         <nav className="bottom-nav" aria-label="主导航">
           {(
@@ -492,7 +571,7 @@ export default function App() {
                   <h3>鹿角虫的鹿练</h3>
                   <p>记下每一组，看见每一步。</p>
                 </div>
-                <span className="pill">v0.1</span>
+                <span className="pill">v0.2</span>
               </div>
               <label>
                 默认组间休息
@@ -519,6 +598,18 @@ export default function App() {
                 <h3>数据备份</h3>
                 <p>
                   数据保存在当前浏览器、当前网站地址下，不会自动同步。清理网站数据或更换地址前，请下载备份。
+                </p>
+                <p>
+                  上次导出：
+                  {data.backup.lastExportedAt
+                    ? new Date(data.backup.lastExportedAt).toLocaleString(
+                        "zh-CN",
+                      )
+                    : "还没有导出过备份"}
+                  。新增 {data.backup.workoutsSinceExport} 次训练。
+                </p>
+                <p className="muted small">
+                  导出时间表示已发起下载，请确认备份文件确实保存在手机中。
                 </p>
                 <button className="primary full" onClick={backup}>
                   <Icon name="download" size={18} />
@@ -726,8 +817,10 @@ export default function App() {
                 onClick={async () => {
                   setRestoring(true);
                   try {
+                    await autosave.flush();
                     await saveData(pendingBackup);
                     lastSaved.current = pendingBackup;
+                    lastRequested.current = pendingBackup;
                     setData(pendingBackup);
                     setSaveStatus("已保存到本机");
                     setPendingBackup(null);
